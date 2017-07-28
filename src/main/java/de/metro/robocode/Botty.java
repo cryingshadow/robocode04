@@ -91,7 +91,7 @@ public class Botty extends Robot {
 
 		knownBots.put(otherBot.name, otherBot);
 
-		if (target.name.equals(otherBot)) {
+		if (target != null && target.name.equals(otherBot)) {
 			target = otherBot;
 		}
 	}
