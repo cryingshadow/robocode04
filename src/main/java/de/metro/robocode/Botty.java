@@ -1,10 +1,12 @@
 package de.metro.robocode;
 
 import java.awt.Color;
-import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
 
 import robocode.HitByBulletEvent;
 import robocode.Robot;
@@ -13,21 +15,29 @@ import robocode.ScannedRobotEvent;
 
 public class Botty extends Robot {
 
+	private static final String INTERNAL_VERSION = "v1626";
+
 	private static final Color METRO_BLUE = new Color(0, 61, 122);
 	private static final Color METRO_YELLOW = new Color(255, 229, 0);
 
-	private Map<String, OtherBot> knownBots = new HashMap<String, OtherBot>();
+	private final Map<String, OtherBot> knownBots = new ConcurrentHashMap<String, OtherBot>();
 	private OtherBot target = null;
 
 	private BotState state = BotState.PREPARING;
 
 	private final Random RANDOM = new Random();
 
-	private static final int SWITCH_TARGET_THRESHOLD = 30;
+	private static final int CEASE_FIRE_THRESHOLD = 100;
+	private static final int SWITCH_TARGET_THRESHOLD = 200;
+	private static final int FORGET_TARGET_THRESHOLD = 300;
+	private static final int CLEANUP_INTERVAL = 100;
+	private static final int BORDER_THRESHOLD = 20;
 	
+	private long lastCleanUpTick = 0;
+
 	@Override
 	public void run() {
-		say("Hello there! My name is Botty and I'm going to kill you :-)");
+		say("Hello there! My name is Botty (" + INTERNAL_VERSION + ") and I'm going to kill you :-)");
 		paintBot();
 		initialSetup();
 
@@ -35,11 +45,16 @@ public class Botty extends Robot {
 			switch (state) {
 			case PREPARING:
 				handlePreparingState();
+				break;
 			case SEARCHING:
 				handleSearchingState();
+				break;
 			case DESTROYING:
 				handleDestroyingState();
+				break;
 			}
+
+			cleanUp();
 		}
 	}
 
@@ -51,11 +66,28 @@ public class Botty extends Robot {
 		setBulletColor(METRO_YELLOW);
 	}
 
+	private synchronized void cleanUp() {
+		final long delta = getTime() - lastCleanUpTick;
+
+		if (delta > CLEANUP_INTERVAL) {
+			final List<String> names = new LinkedList<String>();
+			for (final OtherBot bot : knownBots.values()) {
+				if (getTime() - bot.lastSeenTime > FORGET_TARGET_THRESHOLD) {
+					names.add(bot.name);
+				}
+			}
+
+			for (final String name : names) {
+				knownBots.remove(name);
+			}
+		}
+	}
+
 	private void initialSetup() {
 		turnLeft(1);
 	}
 
-	private Optional<OtherBot> getNextTarget() {
+	private synchronized Optional<OtherBot> getNextTarget() {
 		if (knownBots.isEmpty()) {
 			return Optional.empty();
 		}
@@ -72,43 +104,64 @@ public class Botty extends Robot {
 
 		if (possibleNextTarget.isPresent()) {
 			this.target = possibleNextTarget.get();
-			changeState(BotState.DESTROYING);
 			say("I'm off to kill " + this.target.name);
+			changeState(BotState.DESTROYING);
 		} else {
 			// SEARCH!
-			fire(1);	
-			ahead(RANDOM.nextDouble() * 30);
-			turnLeft(90);
-			fire(1);	
+			ahead(RANDOM.nextDouble() * 400);
+			turnRadarLeft(90);
+			turnRadarRight(90);
+
+			if (getY() < BORDER_THRESHOLD || getY() > getBattleFieldHeight() - BORDER_THRESHOLD) {
+				turnLeft(RANDOM.nextInt(90) + 1);
+			}
+
+			if (getX() < BORDER_THRESHOLD || getX() > getBattleFieldWidth() - BORDER_THRESHOLD) {
+				turnLeft(RANDOM.nextInt(90) + 1);
+			}
 		}
 	}
 
 	private void handleDestroyingState() {
 		// check if still valid target
-		if(target.lastSeenTime > SWITCH_TARGET_THRESHOLD) {
+		final long delta = getTime() - target.lastSeenTime;
+		if (delta > SWITCH_TARGET_THRESHOLD) {
 			say("I think I'll give up chasing " + target.name);
 			changeState(BotState.SEARCHING);
 		} else {
 			// turn to target
-			
-			// move to target location		
-			ahead(RANDOM.nextDouble() * 15);
-			turnLeft(45);
-			fire(1);	
+			if (target.bearing > 0) {
+				turnRight(2);
+			} else {
+				turnLeft(-2);
+			}
+
+			turnRadarLeft(45);
+			turnRadarRight(45);
+
+			if (target.bearing <= 3) {
+				// move to target location
+				ahead(RANDOM.nextDouble() * 100 + 1.0);
+			}
+
+			if (delta < CEASE_FIRE_THRESHOLD) {
+				fire(1.5);
+			}
 		}
 	}
 
-	public void onScannedRobot(ScannedRobotEvent e) {
+	public synchronized void onScannedRobot(ScannedRobotEvent e) {
 		final OtherBot otherBot = OtherBot.fromScannedRobotEvent(e);
 
 		knownBots.put(otherBot.name, otherBot);
 
-		if (target != null && target.name.equals(otherBot)) {
+		if (target != null && otherBot.name.equals(target.name)) {
+			say("updated info on target");
 			target = otherBot;
 		}
 	}
 
-	public void onRobotDeath(RobotDeathEvent event) {
+	public synchronized void onRobotDeath(RobotDeathEvent event) {
 		final String name = event.getName();
 
 		if (knownBots.containsKey(name)) {
@@ -127,10 +180,10 @@ public class Botty extends Robot {
 		this.state = state;
 	}
 
-	public void onHitByBullet(HitByBulletEvent e) {
+	public synchronized void onHitByBullet(HitByBulletEvent e) {
 	}
 
-	private void say(final String message) {
+	private synchronized void say(final String message) {
 		System.out.println(message);
 	}
 }
