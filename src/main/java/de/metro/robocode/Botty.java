@@ -27,13 +27,18 @@ public class Botty extends Robot {
 
 	private final Random RANDOM = new Random();
 
-	private static final int CEASE_FIRE_THRESHOLD = 100;
+	private static final int FIRE_DISTANCE_THRESHOLD = 100;
+	private static final int CEASE_FIRE_THRESHOLD = 25;
 	private static final int SWITCH_TARGET_THRESHOLD = 200;
 	private static final int FORGET_TARGET_THRESHOLD = 300;
 	private static final int CLEANUP_INTERVAL = 100;
 	private static final int BORDER_THRESHOLD = 20;
-	
+
 	private long lastCleanUpTick = 0;
+
+	private static final boolean DEBUG = false;
+
+	private double x;
 
 	@Override
 	public void run() {
@@ -66,7 +71,7 @@ public class Botty extends Robot {
 		setBulletColor(METRO_YELLOW);
 	}
 
-	private synchronized void cleanUp() {
+	private void cleanUp() {
 		final long delta = getTime() - lastCleanUpTick;
 
 		if (delta > CLEANUP_INTERVAL) {
@@ -87,7 +92,7 @@ public class Botty extends Robot {
 		turnLeft(1);
 	}
 
-	private synchronized Optional<OtherBot> getNextTarget() {
+	private Optional<OtherBot> getNextTarget() {
 		if (knownBots.isEmpty()) {
 			return Optional.empty();
 		}
@@ -108,60 +113,77 @@ public class Botty extends Robot {
 			changeState(BotState.DESTROYING);
 		} else {
 			// SEARCH!
-			ahead(RANDOM.nextDouble() * 400);
+			ahead(RANDOM.nextDouble() * 200);
 			turnRadarLeft(90);
+			ahead(RANDOM.nextDouble() * 30);
 			turnRadarRight(90);
 
-			if (getY() < BORDER_THRESHOLD || getY() > getBattleFieldHeight() - BORDER_THRESHOLD) {
-				turnLeft(RANDOM.nextInt(90) + 1);
+			final double x = getX();
+			final double y = getY();
+
+			if (y < BORDER_THRESHOLD || y > getBattleFieldHeight() - BORDER_THRESHOLD) {
+				turnLeft(RANDOM.nextInt(60) + 30);
 			}
 
-			if (getX() < BORDER_THRESHOLD || getX() > getBattleFieldWidth() - BORDER_THRESHOLD) {
-				turnLeft(RANDOM.nextInt(90) + 1);
+			if (x < BORDER_THRESHOLD || x > getBattleFieldWidth() - BORDER_THRESHOLD) {
+				turnLeft(RANDOM.nextInt(60) + 30);
 			}
 		}
 	}
 
 	private void handleDestroyingState() {
-		// check if still valid target
-		final long delta = getTime() - target.lastSeenTime;
-		if (delta > SWITCH_TARGET_THRESHOLD) {
-			say("I think I'll give up chasing " + target.name);
-			changeState(BotState.SEARCHING);
-		} else {
-			// turn to target
-			if (target.bearing > 0) {
-				turnRight(2);
+		if (target != null) {
+			// check if still valid target
+			final long delta = getTime() - target.lastSeenTime;
+			if (delta > SWITCH_TARGET_THRESHOLD) {
+				say("I think I'll give up chasing " + target.name);
+				changeState(BotState.SEARCHING);
 			} else {
-				turnLeft(-2);
-			}
+				// turn to target
+				if (target.bearing > 75) {
+					turnLeft(20);
+				} else if (target.bearing > 50) {
+					turnLeft(10);
+				} else if (target.bearing > 25) {
+					turnLeft(5);
+				} else if (target.bearing > 5) {
+					turnLeft(2);
+				} else if (target.bearing < -75) {
+					turnRight(20);
+				} else if (target.bearing < -50) {
+					turnRight(10);
+				} else if (target.bearing < -25) {
+					turnRight(5);
+				} else if (target.bearing < -5) {
+					turnRight(2);
+				}
 
-			turnRadarLeft(45);
-			turnRadarRight(45);
+				turnRadarLeft(90);
+				turnRadarRight(90);
 
-			if (target.bearing <= 3) {
-				// move to target location
-				ahead(RANDOM.nextDouble() * 100 + 1.0);
-			}
+				if (target.distance > FIRE_DISTANCE_THRESHOLD) {
+					// move to target location
+					ahead(RANDOM.nextDouble() * (target.distance * .075));
+				}
 
-			if (delta < CEASE_FIRE_THRESHOLD) {
-				fire(1.5);
+				if (delta < CEASE_FIRE_THRESHOLD && Math.abs(target.bearing) < 20.0) {
+					fire(1.5);
+				}
 			}
 		}
 	}
 
-	public synchronized void onScannedRobot(ScannedRobotEvent e) {
+	public void onScannedRobot(ScannedRobotEvent e) {
 		final OtherBot otherBot = OtherBot.fromScannedRobotEvent(e);
 
 		knownBots.put(otherBot.name, otherBot);
 
 		if (target != null && otherBot.name.equals(target.name)) {
-			say("updated info on target");
 			target = otherBot;
 		}
 	}
 
-	public synchronized void onRobotDeath(RobotDeathEvent event) {
+	public void onRobotDeath(RobotDeathEvent event) {
 		final String name = event.getName();
 
 		if (knownBots.containsKey(name)) {
@@ -180,10 +202,12 @@ public class Botty extends Robot {
 		this.state = state;
 	}
 
-	public synchronized void onHitByBullet(HitByBulletEvent e) {
+	public void onHitByBullet(HitByBulletEvent e) {
 	}
 
-	private synchronized void say(final String message) {
-		System.out.println(message);
+	private void say(final String message) {
+		if (DEBUG) {
+			System.out.println(message);
+		}
 	}
 }
