@@ -2,7 +2,7 @@ package de.metro.robocode;
 
 import robocode.*;
 
-public class TestBot extends Robot {
+public class Botty extends Robot {
 
     @Override
     public void run() {
