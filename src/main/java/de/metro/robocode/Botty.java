@@ -23,6 +23,8 @@ public class Botty extends Robot {
 
 	private final Random RANDOM = new Random();
 
+	private static final int SWITCH_TARGET_THRESHOLD = 30;
+	
 	@Override
 	public void run() {
 		say("Hello there! My name is Botty and I'm going to kill you :-)");
@@ -74,16 +76,26 @@ public class Botty extends Robot {
 			say("I'm off to kill " + this.target.name);
 		} else {
 			// SEARCH!
+			fire(1);	
 			ahead(RANDOM.nextDouble() * 30);
 			turnLeft(90);
+			fire(1);	
 		}
 	}
 
 	private void handleDestroyingState() {
-		// move to target location
-		ahead(RANDOM.nextDouble() * 15);
-		turnLeft(45);
-		fire(1);
+		// check if still valid target
+		if(target.lastSeenTime > SWITCH_TARGET_THRESHOLD) {
+			say("I think I'll give up chasing " + target.name);
+			changeState(BotState.SEARCHING);
+		} else {
+			// turn to target
+			
+			// move to target location		
+			ahead(RANDOM.nextDouble() * 15);
+			turnLeft(45);
+			fire(1);	
+		}
 	}
 
 	public void onScannedRobot(ScannedRobotEvent e) {
